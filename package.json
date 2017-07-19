@@ -1,0 +1,27 @@
+{
+  "name": "vesting-wallet",
+  "version": "1.0.0",
+  "description": "",
+  "main": "truffle.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "truffle test",
+    "testrpc": "testrpc --networkId 50"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xProject/vesting-wallet.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/0xProject/vesting-wallet/issues"
+  },
+  "homepage": "https://github.com/0xProject/vesting-wallet#readme",
+  "devDependencies": {
+    "ethereumjs-testrpc": "^4.0.1",
+    "truffle": "^3.4.5"
+  }
+}
