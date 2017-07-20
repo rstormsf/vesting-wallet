@@ -177,10 +177,14 @@ contract VestingWallet is Ownable, SafeMath {
     {
         uint timeSinceStartInSec = safeSub(block.timestamp, vestingSchedule.startTimeInSec);
         uint totalVestingTimeInSec = safeSub(vestingSchedule.endTimeInSec, vestingSchedule.startTimeInSec);
-        uint totalAmountVested = safeDiv(
-            safeMul(timeSinceStartInSec, vestingSchedule.totalAmount),
-            totalVestingTimeInSec
+        uint totalAmountVested = min256(
+            safeDiv(
+                safeMul(timeSinceStartInSec, vestingSchedule.totalAmount),
+                totalVestingTimeInSec
+            ),
+            vestingSchedule.totalAmount
         );
+
         return totalAmountVested;
     }
 }
