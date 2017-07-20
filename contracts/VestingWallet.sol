@@ -46,7 +46,7 @@ contract VestingWallet is Ownable, SafeMath {
         require(addressChangeRequests[target] != address(0));
         _;
     }
-    /// @dev Assigns a vestin token to the wallet.
+    /// @dev Assigns a vesting token to the wallet.
     /// @param _vestingToken Token that will be vested.
     function VestingWallet(address _vestingToken) {
         vestingToken = Token(_vestingToken);

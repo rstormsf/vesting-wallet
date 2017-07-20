@@ -7,7 +7,7 @@
     "test": "test"
   },
   "scripts": {
-    "test": "truffle test",
+    "test": "tsc; truffle test",
     "testrpc": "testrpc --networkId 50"
   },
   "repository": {
@@ -21,7 +21,17 @@
   },
   "homepage": "https://github.com/0xProject/vesting-wallet#readme",
   "devDependencies": {
+    "@types/bignumber.js": "^4.0.2",
+    "@types/lodash": "^4.14.70",
+    "@types/node": "^8.0.14",
     "ethereumjs-testrpc": "^4.0.1",
-    "truffle": "^3.4.5"
+    "truffle": "^3.4.5",
+    "typescript": "^2.4.2"
+  },
+  "dependencies": {
+    "bignumber.js": "^4.0.2",
+    "lodash": "^4.17.4",
+    "tslint": "^5.5.0",
+    "tslint-config-0xproject": "0.0.2"
   }
 }
