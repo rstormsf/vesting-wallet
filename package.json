@@ -24,14 +24,20 @@
     "@types/bignumber.js": "^4.0.2",
     "@types/lodash": "^4.14.70",
     "@types/node": "^8.0.14",
+    "@types/request-promise-native": "^1.0.6",
     "ethereumjs-testrpc": "^4.0.1",
     "truffle": "^3.4.5",
-    "typescript": "^2.4.2"
+    "typescript": "^2.4.2",
+    "web3-typescript-typings": "^0.2.1"
   },
   "dependencies": {
     "bignumber.js": "^4.0.2",
+    "es6-promisify": "^5.0.0",
     "lodash": "^4.17.4",
+    "request": "^2.81.0",
+    "request-promise-native": "^1.0.4",
     "tslint": "^5.5.0",
-    "tslint-config-0xproject": "0.0.2"
+    "tslint-config-0xproject": "0.0.2",
+    "web3": "^0.20.1"
   }
 }
