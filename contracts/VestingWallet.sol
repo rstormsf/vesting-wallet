@@ -6,8 +6,8 @@ import "./SafeMath.sol";
 
 contract VestingWallet is Ownable, SafeMath {
 
-    mapping(address => VestingSchedule) schedules;        // vesting schedules for given addresses
-    mapping(address => address) addressChangeRequests;    // requested address changes
+    mapping(address => VestingSchedule) public schedules;        // vesting schedules for given addresses
+    mapping(address => address) public addressChangeRequests;    // requested address changes
 
     Token vestingToken;
     uint public currentId = 0;
@@ -71,7 +71,7 @@ contract VestingWallet is Ownable, SafeMath {
         addressNotRegistered(_addressToRegister)
         returns (bool)
     {
-        assert(vestingToken.transferFrom(_depositor, msg.sender, _totalAmount));
+        assert(vestingToken.transferFrom(_depositor, address(this), _totalAmount));
 
         currentId = safeAdd(currentId, 1);
         schedules[_addressToRegister] = VestingSchedule({

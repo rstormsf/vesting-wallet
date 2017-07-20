@@ -8,3 +8,4 @@ export interface TokenMetadata {
 }
 
 export type ContractInstance = any;
+export type ContractResponse = any;
