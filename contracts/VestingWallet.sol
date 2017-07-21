@@ -22,6 +22,8 @@ contract VestingWallet is Ownable, SafeMath {
     );
     event Withdrawal(address indexed registeredAddress, uint amountWithdrawn);
     event VestingEndedByOwner(address indexed registeredAddress, uint amountWithdrawn, uint amountRefunded);
+    event AddressChangeRequested(address indexed oldRegisteredAddress, address indexed newRegisteredAddress);
+    event AddressChangeConfirmed(address indexed oldRegisteredAddress, address indexed newRegisteredAddress);
 
     struct VestingSchedule {
         uint id;
@@ -178,6 +180,8 @@ contract VestingWallet is Ownable, SafeMath {
         returns (bool)
     {
         addressChangeRequests[msg.sender] = _newRegisteredAddress;
+
+        AddressChangeRequested(msg.sender, _newRegisteredAddress);
         return true;
     }
 
@@ -190,7 +194,6 @@ contract VestingWallet is Ownable, SafeMath {
         onlyOwner
         pendingAddressChangeRequest(_oldRegisteredAddress)
         addressNotRegistered(_newRegisteredAddress)
-        addressNotNull(_newRegisteredAddress)
         returns (bool)
     {
         address newRegisteredAddress = addressChangeRequests[_oldRegisteredAddress];
@@ -202,6 +205,7 @@ contract VestingWallet is Ownable, SafeMath {
         delete schedules[_oldRegisteredAddress];
         delete addressChangeRequests[_oldRegisteredAddress];
 
+        AddressChangeConfirmed(_oldRegisteredAddress, _newRegisteredAddress);
         return true;
     }
 
