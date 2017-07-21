@@ -55,13 +55,13 @@ contract VestingWallet is Ownable, SafeMath {
         _;
     }
 
-    modifier validVestingSchedule(uint startTimeInSec, uint cliffTimeInSec, uint endTimeInSec) {
+    modifier validVestingScheduleTimes(uint startTimeInSec, uint cliffTimeInSec, uint endTimeInSec) {
         require(cliffTimeInSec >= startTimeInSec);
         require(endTimeInSec >= cliffTimeInSec);
         _;
     }
 
-    modifier notNullAddress(address target) {
+    modifier addressNotNull(address target) {
         require(target != address(0));
         _;
     }
@@ -91,7 +91,7 @@ contract VestingWallet is Ownable, SafeMath {
         public
         onlyOwner
         addressNotRegistered(_addressToRegister)
-        validVestingSchedule(_startTimeInSec, _cliffTimeInSec, _endTimeInSec)
+        validVestingScheduleTimes(_startTimeInSec, _cliffTimeInSec, _endTimeInSec)
         returns (bool)
     {
         assert(vestingToken.transferFrom(_depositor, address(this), _totalAmount));
@@ -144,7 +144,7 @@ contract VestingWallet is Ownable, SafeMath {
         public
         onlyOwner
         addressRegistered(_addressToEnd)
-        notNullAddress(_addressToRefund)
+        addressNotNull(_addressToRefund)
         returns (bool)
     {
         VestingSchedule storage vestingSchedule = schedules[_addressToEnd];
@@ -174,6 +174,7 @@ contract VestingWallet is Ownable, SafeMath {
     function requestAddressChange(address _newRegisteredAddress)
         public
         addressRegistered(msg.sender)
+        addressNotNull(_newRegisteredAddress)
         returns (bool)
     {
         addressChangeRequests[msg.sender] = _newRegisteredAddress;
@@ -189,7 +190,7 @@ contract VestingWallet is Ownable, SafeMath {
         onlyOwner
         pendingAddressChangeRequest(_oldRegisteredAddress)
         addressNotRegistered(_newRegisteredAddress)
-        notNullAddress(_newRegisteredAddress)
+        addressNotNull(_newRegisteredAddress)
         returns (bool)
     {
         address newRegisteredAddress = addressChangeRequests[_oldRegisteredAddress];
@@ -211,7 +212,7 @@ contract VestingWallet is Ownable, SafeMath {
         internal
         returns (uint)
     {
-        if (block.timestamp > vestingSchedule.endTimeInSec) return vestingSchedule.totalAmount;
+        if (block.timestamp >= vestingSchedule.endTimeInSec) return vestingSchedule.totalAmount;
 
         uint timeSinceStartInSec = safeSub(block.timestamp, vestingSchedule.startTimeInSec);
         uint totalVestingTimeInSec = safeSub(vestingSchedule.endTimeInSec, vestingSchedule.startTimeInSec);
