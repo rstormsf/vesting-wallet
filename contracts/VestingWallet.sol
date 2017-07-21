@@ -54,6 +54,18 @@ contract VestingWallet is Ownable, SafeMath {
         require(block.timestamp > vestingSchedule.cliffTimeInSec);
         _;
     }
+
+    modifier validVestingSchedule(uint startTimeInSec, uint cliffTimeInSec, uint endTimeInSec) {
+        require(cliffTimeInSec >= startTimeInSec);
+        require(endTimeInSec >= cliffTimeInSec);
+        _;
+    }
+
+    modifier notNullAddress(address target) {
+        require(target != address(0));
+        _;
+    }
+
     /// @dev Assigns a vesting token to the wallet.
     /// @param _vestingToken Token that will be vested.
     function VestingWallet(address _vestingToken) {
@@ -79,6 +91,7 @@ contract VestingWallet is Ownable, SafeMath {
         public
         onlyOwner
         addressNotRegistered(_addressToRegister)
+        validVestingSchedule(_startTimeInSec, _cliffTimeInSec, _endTimeInSec)
         returns (bool)
     {
         assert(vestingToken.transferFrom(_depositor, address(this), _totalAmount));
@@ -125,11 +138,13 @@ contract VestingWallet is Ownable, SafeMath {
 
     /// @dev Allows contract owner to terminate a vesting schedule, transfering remaining vested tokens to the registered address and refunding owner with remaining tokens.
     /// @param _addressToEnd Address that is currently registered to the vesting schedule that will be closed.
+    /// @param _addressToRefund Address that will receive unvested tokens.
     /// @return Success of termination.
-    function endVesting(address _addressToEnd)
+    function endVesting(address _addressToEnd, address _addressToRefund)
         public
         onlyOwner
         addressRegistered(_addressToEnd)
+        notNullAddress(_addressToRefund)
         returns (bool)
     {
         VestingSchedule storage vestingSchedule = schedules[_addressToEnd];
@@ -147,7 +162,7 @@ contract VestingWallet is Ownable, SafeMath {
 
         delete schedules[_addressToEnd];
         assert(amountWithdrawable == 0 || vestingToken.transfer(_addressToEnd, amountWithdrawable));
-        assert(amountRefundable == 0 || vestingToken.transfer(msg.sender, amountRefundable));
+        assert(amountRefundable == 0 || vestingToken.transfer(_addressToRefund, amountRefundable));
 
         VestingEndedByOwner(_addressToEnd, amountWithdrawable, amountRefundable);
         return true;
@@ -174,6 +189,7 @@ contract VestingWallet is Ownable, SafeMath {
         onlyOwner
         pendingAddressChangeRequest(_oldRegisteredAddress)
         addressNotRegistered(_newRegisteredAddress)
+        notNullAddress(_newRegisteredAddress)
         returns (bool)
     {
         address newRegisteredAddress = addressChangeRequests[_oldRegisteredAddress];
