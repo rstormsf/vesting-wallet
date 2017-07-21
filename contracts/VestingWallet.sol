@@ -151,8 +151,8 @@ contract VestingWallet is Ownable, SafeMath {
     {
         VestingSchedule storage vestingSchedule = schedules[_addressToEnd];
 
-        uint amountWithdrawable;
-        uint amountRefundable;
+        uint amountWithdrawable = 0;
+        uint amountRefundable = 0;
 
         if (block.timestamp < vestingSchedule.cliffTimeInSec) {
             amountRefundable = vestingSchedule.totalAmount;
@@ -209,7 +209,7 @@ contract VestingWallet is Ownable, SafeMath {
         return true;
     }
 
-    /// @dev Calculates the total tokens that have been vested for a vesting schedule.
+    /// @dev Calculates the total tokens that have been vested for a vesting schedule, assuming the schedule is past the cliff.
     /// @param vestingSchedule Vesting schedule used to calcculate vested tokens.
     /// @return Total tokens vested for a vesting schedule.
     function getTotalAmountVested(VestingSchedule vestingSchedule)
