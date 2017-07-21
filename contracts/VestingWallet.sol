@@ -16,6 +16,7 @@ contract VestingWallet is Ownable, SafeMath {
         address indexed registeredAddress,
         uint id,
         uint startTimeInSec,
+        uint cliffTimeInSec,
         uint endTimeInSec,
         uint totalAmount
     );
@@ -25,25 +26,32 @@ contract VestingWallet is Ownable, SafeMath {
     struct VestingSchedule {
         uint id;
         uint startTimeInSec;
+        uint cliffTimeInSec;
         uint endTimeInSec;
         uint totalAmount;
         uint totalAmountWithdrawn;
     }
 
     modifier addressRegistered(address target) {
-        VestingSchedule memory vestingSchedule = schedules[target];
+        VestingSchedule storage vestingSchedule = schedules[target];
         require(vestingSchedule.id != 0);
         _;
     }
 
     modifier addressNotRegistered(address target) {
-        VestingSchedule memory vestingSchedule = schedules[target];
+        VestingSchedule storage vestingSchedule = schedules[target];
         require(vestingSchedule.id == 0);
         _;
     }
 
     modifier pendingAddressChangeRequest(address target) {
         require(addressChangeRequests[target] != address(0));
+        _;
+    }
+
+    modifier pastCliffTime(address target) {
+        VestingSchedule storage vestingSchedule = schedules[target];
+        require(block.timestamp > vestingSchedule.cliffTimeInSec);
         _;
     }
     /// @dev Assigns a vesting token to the wallet.
@@ -56,6 +64,7 @@ contract VestingWallet is Ownable, SafeMath {
     /// @param _addressToRegister The address that is allowed to withdraw vested tokens for this schedule.
     /// @param _depositor Address that will be depositing vesting token.
     /// @param _startTimeInSec The time in seconds that vesting began.
+    /// @param _cliffTimeInSec The time in seconds that tokens become withdrawable.
     /// @param _endTimeInSec The time in seconds that vesting ends.
     /// @param _totalAmount The total amount of tokens that the registered address can withdraw by the end of the vesting period.
     /// @return Success of registration.
@@ -63,6 +72,7 @@ contract VestingWallet is Ownable, SafeMath {
         address _addressToRegister,
         address _depositor,
         uint _startTimeInSec,
+        uint _cliffTimeInSec,
         uint _endTimeInSec,
         uint _totalAmount
     )
@@ -77,6 +87,7 @@ contract VestingWallet is Ownable, SafeMath {
         schedules[_addressToRegister] = VestingSchedule({
             id: currentId,
             startTimeInSec: _startTimeInSec,
+            cliffTimeInSec: _cliffTimeInSec,
             endTimeInSec: _endTimeInSec,
             totalAmount: _totalAmount,
             totalAmountWithdrawn: 0
@@ -86,6 +97,7 @@ contract VestingWallet is Ownable, SafeMath {
             _addressToRegister,
             currentId,
             _startTimeInSec,
+            _cliffTimeInSec,
             _endTimeInSec,
             _totalAmount
         );
@@ -97,6 +109,7 @@ contract VestingWallet is Ownable, SafeMath {
     function withdraw()
         public
         addressRegistered(msg.sender)
+        pastCliffTime(msg.sender)
         returns (bool)
     {
         VestingSchedule storage vestingSchedule = schedules[msg.sender];
@@ -121,13 +134,20 @@ contract VestingWallet is Ownable, SafeMath {
     {
         VestingSchedule storage vestingSchedule = schedules[_addressToEnd];
 
-        uint totalAmountVested = getTotalAmountVested(vestingSchedule);
-        uint amountWithdrawable = safeSub(totalAmountVested, vestingSchedule.totalAmountWithdrawn);
-        uint amountRefundable = safeSub(vestingSchedule.totalAmount, totalAmountVested);
+        uint amountWithdrawable;
+        uint amountRefundable;
+
+        if (block.timestamp < vestingSchedule.cliffTimeInSec) {
+            amountRefundable = vestingSchedule.totalAmount;
+        } else {
+            uint totalAmountVested = getTotalAmountVested(vestingSchedule);
+            amountWithdrawable = safeSub(totalAmountVested, vestingSchedule.totalAmountWithdrawn);
+            amountRefundable = safeSub(vestingSchedule.totalAmount, totalAmountVested);
+        }
 
         delete schedules[_addressToEnd];
-        assert(vestingToken.transfer(_addressToEnd, amountWithdrawable));
-        assert(vestingToken.transfer(msg.sender, amountRefundable));
+        assert(amountWithdrawable == 0 || vestingToken.transfer(_addressToEnd, amountWithdrawable));
+        assert(amountRefundable == 0 || vestingToken.transfer(msg.sender, amountRefundable));
 
         VestingEndedByOwner(_addressToEnd, amountWithdrawable, amountRefundable);
         return true;
@@ -175,14 +195,13 @@ contract VestingWallet is Ownable, SafeMath {
         internal
         returns (uint)
     {
+        if (block.timestamp > vestingSchedule.endTimeInSec) return vestingSchedule.totalAmount;
+
         uint timeSinceStartInSec = safeSub(block.timestamp, vestingSchedule.startTimeInSec);
         uint totalVestingTimeInSec = safeSub(vestingSchedule.endTimeInSec, vestingSchedule.startTimeInSec);
-        uint totalAmountVested = min256(
-            safeDiv(
-                safeMul(timeSinceStartInSec, vestingSchedule.totalAmount),
-                totalVestingTimeInSec
-            ),
-            vestingSchedule.totalAmount
+        uint totalAmountVested = safeDiv(
+            safeMul(timeSinceStartInSec, vestingSchedule.totalAmount),
+            totalVestingTimeInSec
         );
 
         return totalAmountVested;

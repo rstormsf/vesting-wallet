@@ -42,6 +42,7 @@ contract('VestingWallet', (accounts: string[]) => {
         const _addressToRegister = registeredAddress;
         const _depositor = owner;
         const _startTimeInSec = new BigNumber(Math.floor(Date.now() / 1000));
+        const _cliffTimeInSec = _startTimeInSec.plus(vestingDurationInSec / 4);
         const _endTimeInSec = _startTimeInSec.plus(vestingDurationInSec);
         const _totalAmount = vestingTokenMetadata.totalSupply;
 
@@ -51,6 +52,7 @@ contract('VestingWallet', (accounts: string[]) => {
                 await vestingWallet.registerVestingSchedule(_addressToRegister,
                                                             _depositor,
                                                             _startTimeInSec,
+                                                            _cliffTimeInSec,
                                                             _endTimeInSec,
                                                             _totalAmount,
                                                             {from: notOwner});
@@ -64,16 +66,18 @@ contract('VestingWallet', (accounts: string[]) => {
             await vestingWallet.registerVestingSchedule(_addressToRegister,
                                                         _depositor,
                                                         _startTimeInSec,
+                                                        _cliffTimeInSec,
                                                         _endTimeInSec,
                                                         _totalAmount,
                                                         {from: owner});
             const scheduleArray = await vestingWallet.schedules.call(_addressToRegister);
-            const [id, startTimeInSec, endTimeInSec, totalAmount, totalAmountWithdrawn] = scheduleArray;
+            const [id, startTimeInSec, cliffTimeInSec, endTimeInSec, totalAmount, totalAmountWithdrawn] = scheduleArray;
 
             const idString = '1';
             const totalAmountWithdrawnString = '0';
             assert.equal(id.toString(), idString);
             assert.equal(startTimeInSec.toString(), _startTimeInSec.toString());
+            assert.equal(cliffTimeInSec.toString(), _cliffTimeInSec.toString());
             assert.equal(endTimeInSec.toString(), _endTimeInSec.toString());
             assert.equal(totalAmount.toString(), _totalAmount.toString());
             assert.equal(totalAmountWithdrawn.toString(), totalAmountWithdrawnString);
@@ -83,6 +87,7 @@ contract('VestingWallet', (accounts: string[]) => {
             const res: ContractResponse = await vestingWallet.registerVestingSchedule(_addressToRegister,
                                                                                       _depositor,
                                                                                       _startTimeInSec,
+                                                                                      _cliffTimeInSec,
                                                                                       _endTimeInSec,
                                                                                       _totalAmount,
                                                                                       {from: owner});
@@ -91,10 +96,10 @@ contract('VestingWallet', (accounts: string[]) => {
             const logArgs = logs[0].args;
 
             const idString = '1';
-            const totalAmountWithdrawnString = '0';
             assert.equal(logArgs.registeredAddress, _addressToRegister);
-            assert.equal(logArgs.id, idString);
+            assert.equal(logArgs.id.toString(), idString);
             assert.equal(logArgs.startTimeInSec.toString(), _startTimeInSec.toString());
+            assert.equal(logArgs.cliffTimeInSec.toString(), _cliffTimeInSec.toString());
             assert.equal(logArgs.endTimeInSec.toString(), _endTimeInSec.toString());
             assert.equal(logArgs.totalAmount.toString(), _totalAmount.toString());
         });
@@ -103,6 +108,7 @@ contract('VestingWallet', (accounts: string[]) => {
             await vestingWallet.registerVestingSchedule(_addressToRegister,
                                                         _depositor,
                                                         _startTimeInSec,
+                                                        _cliffTimeInSec,
                                                         _endTimeInSec,
                                                         _totalAmount,
                                                         {from: owner});
@@ -122,6 +128,7 @@ contract('VestingWallet', (accounts: string[]) => {
                 await vestingWallet.registerVestingSchedule(_addressToRegister,
                                                             _depositor,
                                                             _startTimeInSec,
+                                                            _cliffTimeInSec,
                                                             _endTimeInSec,
                                                             _totalAmount,
                                                             {from: owner});
@@ -139,6 +146,7 @@ contract('VestingWallet', (accounts: string[]) => {
                 await vestingWallet.registerVestingSchedule(_addressToRegister,
                                                             _depositor,
                                                             _startTimeInSec,
+                                                            _cliffTimeInSec,
                                                             _endTimeInSec,
                                                             _totalAmount,
                                                             {from: owner});
@@ -152,6 +160,7 @@ contract('VestingWallet', (accounts: string[]) => {
             await vestingWallet.registerVestingSchedule(_addressToRegister,
                                                         _depositor,
                                                         _startTimeInSec,
+                                                        _cliffTimeInSec,
                                                         _endTimeInSec,
                                                         _totalAmount,
                                                         {from: owner});
@@ -160,6 +169,7 @@ contract('VestingWallet', (accounts: string[]) => {
                 await vestingWallet.registerVestingSchedule(_addressToRegister,
                                                             _depositor,
                                                             _startTimeInSec,
+                                                            _cliffTimeInSec,
                                                             _endTimeInSec,
                                                             _totalAmount,
                                                             {from: owner});
@@ -181,11 +191,13 @@ contract('VestingWallet', (accounts: string[]) => {
             const blockTimestamp: number = blockData.timestamp;
 
             const _startTimeInSec = new BigNumber(blockTimestamp);
+            const _cliffTimeInSec = _startTimeInSec.plus(vestingDurationInSec / 4);
             const _endTimeInSec = _startTimeInSec.plus(vestingDurationInSec);
 
             await vestingWallet.registerVestingSchedule(_addressToRegister,
                                                         _depositor,
                                                         _startTimeInSec,
+                                                        _cliffTimeInSec,
                                                         _endTimeInSec,
                                                         _totalAmount,
                                                         {from: owner});
@@ -201,7 +213,16 @@ contract('VestingWallet', (accounts: string[]) => {
             }
         });
 
-        it('should allow a registered address to withdraw vested tokens', async () => {
+        it('should throw if a registered address attempts to withdraw before the cliff time', async () => {
+            try {
+                await vestingWallet.withdraw({from: registeredAddress});
+                throw new Error('withdraw succeeded when it should have failed');
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+
+        it('should allow a registered address to withdraw vested tokens after the cliff', async () => {
             const percentageVested = .5;
             const timeToIncreaseInSec = percentageVested * vestingDurationInSec;
             await rpc.increaseTimeAsync(timeToIncreaseInSec);
@@ -215,6 +236,21 @@ contract('VestingWallet', (accounts: string[]) => {
 
             assert.equal(registeredAddressBalance.toString(), expectedRegisteredAddressBalance.toString());
             assert.equal(vestingWalletBalance.toString(), expectedVestingWalletBalance.toString());
+        });
+
+        it('should log the correct arguments after a successful withdrawal', async () => {
+            const percentageVested = .5;
+            const timeToIncreaseInSec = percentageVested * vestingDurationInSec;
+            await rpc.increaseTimeAsync(timeToIncreaseInSec);
+
+            const res: ContractResponse = await vestingWallet.withdraw({from: registeredAddress});
+            const logs = res.logs;
+            assert.equal(logs.length, 1);
+
+            const logArgs = logs[0].args;
+            const expectedAmountWithdrawn = new BigNumber(_totalAmount).times(percentageVested);
+            assert.equal(logArgs.registeredAddress, registeredAddress);
+            assert.equal(logArgs.amountWithdrawn.toString(), expectedAmountWithdrawn.toString());
         });
     });
 });
