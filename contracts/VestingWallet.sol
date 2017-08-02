@@ -96,8 +96,6 @@ contract VestingWallet is Ownable, SafeMath {
         validVestingScheduleTimes(_startTimeInSec, _cliffTimeInSec, _endTimeInSec)
         returns (bool)
     {
-        require(vestingToken.transferFrom(_depositor, address(this), _totalAmount));
-
         currentId = safeAdd(currentId, 1);
         schedules[_addressToRegister] = VestingSchedule({
             id: currentId,
@@ -107,6 +105,8 @@ contract VestingWallet is Ownable, SafeMath {
             totalAmount: _totalAmount,
             totalAmountWithdrawn: 0
         });
+
+        require(vestingToken.transferFrom(_depositor, address(this), _totalAmount));
 
         VestingScheduleRegistered(
             _addressToRegister,
