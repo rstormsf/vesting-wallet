@@ -96,7 +96,7 @@ contract VestingWallet is Ownable, SafeMath {
         validVestingScheduleTimes(_startTimeInSec, _cliffTimeInSec, _endTimeInSec)
         returns (bool)
     {
-        assert(vestingToken.transferFrom(_depositor, address(this), _totalAmount));
+        require(vestingToken.transferFrom(_depositor, address(this), _totalAmount));
 
         currentId = safeAdd(currentId, 1);
         schedules[_addressToRegister] = VestingSchedule({
@@ -132,7 +132,7 @@ contract VestingWallet is Ownable, SafeMath {
         uint totalAmountVested = getTotalAmountVested(vestingSchedule);
         uint amountWithdrawable = safeSub(totalAmountVested, vestingSchedule.totalAmountWithdrawn);
         vestingSchedule.totalAmountWithdrawn = totalAmountVested;
-        assert(vestingToken.transfer(msg.sender, amountWithdrawable));
+        require(vestingToken.transfer(msg.sender, amountWithdrawable));
 
         Withdrawal(msg.sender, amountWithdrawable);
         return true;
@@ -163,8 +163,8 @@ contract VestingWallet is Ownable, SafeMath {
         }
 
         delete schedules[_addressToEnd];
-        assert(amountWithdrawable == 0 || vestingToken.transfer(_addressToEnd, amountWithdrawable));
-        assert(amountRefundable == 0 || vestingToken.transfer(_addressToRefund, amountRefundable));
+        require(amountWithdrawable == 0 || vestingToken.transfer(_addressToEnd, amountWithdrawable));
+        require(amountRefundable == 0 || vestingToken.transfer(_addressToRefund, amountRefundable));
 
         VestingEndedByOwner(_addressToEnd, amountWithdrawable, amountRefundable);
         return true;
