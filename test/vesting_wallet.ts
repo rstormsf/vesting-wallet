@@ -50,7 +50,7 @@ contract('VestingWallet', (accounts: string[]) => {
                                             vestingTokenMetadata.totalSupply,
                                             {from: owner});
         vestingWallet = await VestingWallet.new(vestingToken.address, {from: owner});
-        await vestingToken.approve(vestingWallet.address, vestingTokenMetadata.totalSupply);
+        await vestingToken.approve(vestingWallet.address, vestingTokenMetadata.totalSupply, {from: depositor});
     });
 
     describe('registerVestingSchedule', () => {
@@ -106,6 +106,22 @@ contract('VestingWallet', (accounts: string[]) => {
           }
         });
 
+        it('should throw if depositor is a null address', async () => {
+          const invalidDepositor = constants.NULL_ADDRESS;
+          try {
+              await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                          invalidDepositor,
+                                                          startTimeInSec,
+                                                          cliffTimeInSec,
+                                                          endTimeInSec,
+                                                          totalAmount,
+                                                          {from: registeredAddress});
+              throw new Error('registerVestingSchedule succeeded when it should have failed');
+          } catch (err) {
+              testUtil.assertThrow(err);
+          }
+        });
+
         it('should register a vesting schedule to an address when called by owner', async () => {
             await vestingWallet.registerVestingSchedule(addressToRegister,
                                                         depositor,
@@ -116,22 +132,23 @@ contract('VestingWallet', (accounts: string[]) => {
                                                         {from: owner});
             const scheduleArray = await vestingWallet.schedules.call(addressToRegister);
             const [
-                registeredId,
                 registeredStartTimeInSec,
                 registeredCliffTimeInSec,
                 registeredEndTimeInSec,
                 registeredTotalAmount,
                 registeredTotalAmountWithdrawn,
+                registeredDepositor,
+                registrationConfirmed,
             ] = scheduleArray;
 
-            const expectedIdString = '1';
             const expectedTotalAmountWithdrawnString = '0';
-            assert.equal(registeredId.toString(), expectedIdString);
             assert.equal(registeredStartTimeInSec.toString(), startTimeInSec.toString());
             assert.equal(registeredCliffTimeInSec.toString(), cliffTimeInSec.toString());
             assert.equal(registeredEndTimeInSec.toString(), endTimeInSec.toString());
             assert.equal(registeredTotalAmount.toString(), totalAmount.toString());
             assert.equal(registeredTotalAmountWithdrawn.toString(), expectedTotalAmountWithdrawnString);
+            assert.equal(registeredDepositor, depositor);
+            assert.equal(registrationConfirmed, false);
         });
 
         it('should register a vesting schedule and log the correct events when called by owner', async () => {
@@ -146,16 +163,15 @@ contract('VestingWallet', (accounts: string[]) => {
             assert.equal(logs.length, 1);
             const logArgs = logs[0].args;
 
-            const expectedIdString = '1';
             assert.equal(logArgs.registeredAddress, addressToRegister);
-            assert.equal(logArgs.id.toString(), expectedIdString);
+            assert.equal(logArgs.depositor, depositor);
             assert.equal(logArgs.startTimeInSec.toString(), startTimeInSec.toString());
             assert.equal(logArgs.cliffTimeInSec.toString(), cliffTimeInSec.toString());
             assert.equal(logArgs.endTimeInSec.toString(), endTimeInSec.toString());
             assert.equal(logArgs.totalAmount.toString(), totalAmount.toString());
         });
 
-        it('should transfer totalAmount tokens from depositor to vestingWallet if called by owner', async () => {
+        it('should overwrite a previously registered schedule if not yet confirmed', async () => {
             await vestingWallet.registerVestingSchedule(addressToRegister,
                                                         depositor,
                                                         startTimeInSec,
@@ -163,68 +179,242 @@ contract('VestingWallet', (accounts: string[]) => {
                                                         endTimeInSec,
                                                         totalAmount,
                                                         {from: owner});
-            const ownerBalance = await vestingToken.balanceOf.call(depositor);
-            const vestingWalletBalance = await vestingToken.balanceOf.call(vestingWallet.address);
 
-            const expectedOwnerBalanceString = '0';
-            assert.equal(ownerBalance.toString(), expectedOwnerBalanceString);
+            const newDepositor = accounts[2];
+            const newStartTimeInSec = startTimeInSec.plus(100);
+            const newCliffTimeInSec = cliffTimeInSec.plus(100);
+            const newEndTimeInSec = endTimeInSec.plus(100);
+            const newTotalAmount = totalAmount.plus(100);
+
+            await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                        newDepositor,
+                                                        newStartTimeInSec,
+                                                        newCliffTimeInSec,
+                                                        newEndTimeInSec,
+                                                        newTotalAmount,
+                                                        {from: owner});
+            const scheduleArray = await vestingWallet.schedules.call(addressToRegister);
+            const [
+                registeredStartTimeInSec,
+                registeredCliffTimeInSec,
+                registeredEndTimeInSec,
+                registeredTotalAmount,
+                registeredTotalAmountWithdrawn,
+                registeredDepositor,
+                registrationConfirmed,
+            ] = scheduleArray;
+
+            const expectedTotalAmountWithdrawnString = '0';
+            assert.equal(registeredStartTimeInSec.toString(), newStartTimeInSec.toString());
+            assert.equal(registeredCliffTimeInSec.toString(), newCliffTimeInSec.toString());
+            assert.equal(registeredEndTimeInSec.toString(), newEndTimeInSec.toString());
+            assert.equal(registeredTotalAmount.toString(), newTotalAmount.toString());
+            assert.equal(registeredTotalAmountWithdrawn.toString(), expectedTotalAmountWithdrawnString);
+            assert.equal(registeredDepositor, newDepositor);
+            assert.equal(registrationConfirmed, false);
+        });
+
+        it('should throw if vesting schedule is already confirmed', async () => {
+            await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                        depositor,
+                                                        startTimeInSec,
+                                                        cliffTimeInSec,
+                                                        endTimeInSec,
+                                                        totalAmount,
+                                                        {from: owner});
+            await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                       cliffTimeInSec,
+                                                       endTimeInSec,
+                                                       totalAmount,
+                                                       {from: addressToRegister});
+
+            const newDepositor = accounts[2];
+            const newStartTimeInSec = startTimeInSec.plus(100);
+            const newCliffTimeInSec = cliffTimeInSec.plus(100);
+            const newEndTimeInSec = endTimeInSec.plus(100);
+            const newTotalAmount = totalAmount.plus(100);
+
+            try {
+                await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                            newDepositor,
+                                                            newStartTimeInSec,
+                                                            newCliffTimeInSec,
+                                                            newEndTimeInSec,
+                                                            newTotalAmount,
+                                                            {from: owner});
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+    });
+
+    describe('confirmVestingSchedule', () => {
+        let startTimeInSec: BigNumber.BigNumber;
+        let cliffTimeInSec: BigNumber.BigNumber;
+        let endTimeInSec: BigNumber.BigNumber;
+
+        beforeEach(async () => {
+            const blockTimestamp = await getBlockTimestampAsync();
+
+            startTimeInSec = new BigNumber(blockTimestamp);
+            cliffTimeInSec = startTimeInSec.plus(vestingDurationInSec / cliffTimeDivisor);
+            endTimeInSec = startTimeInSec.plus(vestingDurationInSec);
+
+            await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                        depositor,
+                                                        startTimeInSec,
+                                                        cliffTimeInSec,
+                                                        endTimeInSec,
+                                                        totalAmount,
+                                                        {from: owner});
+        });
+
+        it('should throw if caller vesting schedule not registered', async () => {
+            vestingWallet = await VestingWallet.new(vestingToken.address, {from: owner});
+            await vestingToken.approve(vestingWallet.address, vestingTokenMetadata.totalSupply, {from: depositor});
+            try {
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           cliffTimeInSec,
+                                                           endTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+
+        it('should throw if startTimeInSec is different from the registered startTimeInSec', async () => {
+            const invalidStartTimeInSec = startTimeInSec.plus(100);
+            try {
+                await vestingWallet.confirmVestingSchedule(invalidStartTimeInSec,
+                                                           cliffTimeInSec,
+                                                           endTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+
+        it('should throw if cliffTimeInSec is different from the registered cliffTimeInSec', async () => {
+            const invalidCliffTimeInSec = cliffTimeInSec.plus(100);
+            try {
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           invalidCliffTimeInSec,
+                                                           endTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+
+        it('should throw if endTimeInSec is different from the registered endTimeInSec', async () => {
+            const invalidEndTimeInSec = endTimeInSec.plus(100);
+            try {
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           cliffTimeInSec,
+                                                           invalidEndTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+
+        it('should throw if totalAmount is different from the registered totalAmount', async () => {
+            const invalidTotalAmount = totalAmount.plus(100);
+            try {
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           cliffTimeInSec,
+                                                           endTimeInSec,
+                                                           invalidTotalAmount,
+                                                           {from: addressToRegister});
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+
+        it('should transfer totalAmount tokens from depositor to vestingWallet', async () => {
+            await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                       cliffTimeInSec,
+                                                       endTimeInSec,
+                                                       totalAmount,
+                                                       {from: addressToRegister});
+
+            const depositorBalance = await vestingToken.balanceOf.call(depositor);
+            const vestingWalletBalance = await vestingToken.balanceOf.call(vestingWallet.address);
+            const expectedDepositorBalanceString = '0';
+            assert.equal(depositorBalance.toString(), expectedDepositorBalanceString);
             assert.equal(vestingWalletBalance.toString(), totalAmount.toString());
         });
 
-        it('should throw if owner has insufficient balance to deposit', async () => {
+        it('should throw if depositor has insufficient balance to deposit', async () => {
             const newBalance = new BigNumber(0);
             await vestingToken.setBalance(depositor, newBalance, {from: owner});
-
             try {
-                await vestingWallet.registerVestingSchedule(addressToRegister,
-                                                            depositor,
-                                                            startTimeInSec,
-                                                            cliffTimeInSec,
-                                                            endTimeInSec,
-                                                            totalAmount,
-                                                            {from: owner});
-                throw new Error('registerVestingSchedule succeeded when it should have failed');
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           cliffTimeInSec,
+                                                           endTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+                throw new Error('confirmVestingSchedule succeeded when it should have failed');
             } catch (err) {
                 testUtil.assertThrow(err);
             }
         });
 
-        it('should throw if owner has insufficient allowances to deposit', async () => {
+        it('should throw if depositor has insufficient allowances to deposit', async () => {
             const newAllowance = new BigNumber(0);
-            await vestingToken.approve(vestingWallet.address, newAllowance, {from: owner});
-
+            await vestingToken.approve(vestingWallet.address, newAllowance, {from: depositor});
             try {
-                await vestingWallet.registerVestingSchedule(addressToRegister,
-                                                            depositor,
-                                                            startTimeInSec,
-                                                            cliffTimeInSec,
-                                                            endTimeInSec,
-                                                            totalAmount,
-                                                            {from: owner});
-                throw new Error('registerVestingSchedule succeeded when it should have failed');
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           cliffTimeInSec,
+                                                           endTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+                throw new Error('confirmVestingSchedule succeeded when it should have failed');
             } catch (err) {
                 testUtil.assertThrow(err);
             }
         });
 
-        it('should throw if address is already registered', async () => {
-            await vestingWallet.registerVestingSchedule(addressToRegister,
-                                                        depositor,
-                                                        startTimeInSec,
-                                                        cliffTimeInSec,
-                                                        endTimeInSec,
-                                                        totalAmount,
-                                                        {from: owner});
+        it('should confirm the vesting schedule and log correct events when called with valid args', async () => {
+            const res: ContractResponse = await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                       cliffTimeInSec,
+                                                       endTimeInSec,
+                                                       totalAmount,
+                                                       {from: addressToRegister});
 
+            const scheduleArray = await vestingWallet.schedules.call(addressToRegister);
+            const registrationConfirmed = scheduleArray[6];
+            assert.equal(registrationConfirmed, true);
+
+            const logs = res.logs;
+            assert.equal(logs.length, 1);
+            const logArgs = logs[0].args;
+
+            assert.equal(logArgs.registeredAddress, addressToRegister);
+            assert.equal(logArgs.depositor, depositor);
+            assert.equal(logArgs.startTimeInSec.toString(), startTimeInSec.toString());
+            assert.equal(logArgs.cliffTimeInSec.toString(), cliffTimeInSec.toString());
+            assert.equal(logArgs.endTimeInSec.toString(), endTimeInSec.toString());
+            assert.equal(logArgs.totalAmount.toString(), totalAmount.toString());
+        });
+
+        it('should throw if caller vesting schedule has already been confirmed', async () => {
+            await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                       cliffTimeInSec,
+                                                       endTimeInSec,
+                                                       totalAmount,
+                                                       {from: addressToRegister});
             try {
-                await vestingWallet.registerVestingSchedule(addressToRegister,
-                                                            depositor,
-                                                            startTimeInSec,
-                                                            cliffTimeInSec,
-                                                            endTimeInSec,
-                                                            totalAmount,
-                                                            {from: owner});
-                throw new Error('registerVestingSchedule succeeded when it should have failed');
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           cliffTimeInSec,
+                                                           endTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+                throw new Error('confirmVestingSchedule succeeded when it should have failed');
             } catch (err) {
                 testUtil.assertThrow(err);
             }
@@ -248,7 +438,7 @@ contract('VestingWallet', (accounts: string[]) => {
                                                         {from: owner});
         });
 
-        it('throw if called from an unregistered address', async () => {
+        it('throw if caller vesting schedule is not confirmed', async () => {
             try {
                 const unregisteredAddress = owner;
                 await vestingWallet.withdraw({from: unregisteredAddress});
@@ -548,7 +738,6 @@ contract('VestingWallet', (accounts: string[]) => {
 
             const oldScheduleArray = await vestingWallet.schedules.call(oldRegisteredAddress);
             const [
-                oldRegisteredId,
                 oldRegisteredStartTimeInSec,
                 oldRegisteredCliffTimeInSec,
                 oldRegisteredEndTimeInSec,
@@ -557,7 +746,6 @@ contract('VestingWallet', (accounts: string[]) => {
             ] = oldScheduleArray;
 
             const nullUintString = 0;
-            assert.equal(oldRegisteredId.toString(), nullUintString);
             assert.equal(oldRegisteredStartTimeInSec.toString(), nullUintString);
             assert.equal(oldRegisteredCliffTimeInSec.toString(), nullUintString);
             assert.equal(oldRegisteredEndTimeInSec.toString(), nullUintString);
