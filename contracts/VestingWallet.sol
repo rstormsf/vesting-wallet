@@ -1,4 +1,4 @@
-pragma solidity ^0.4.11;
+pragma solidity 0.4.11;
 
 import "./Ownable.sol";
 import "./Token.sol";
@@ -182,7 +182,7 @@ contract VestingWallet is Ownable, SafeMath {
         uint amountWithdrawable = safeSub(totalAmountVested, vestingSchedule.totalAmountWithdrawn);
         vestingSchedule.totalAmountWithdrawn = totalAmountVested;
 
-        if(amountWithdrawable > 0) {
+        if (amountWithdrawable > 0) {
             require(vestingToken.transfer(msg.sender, amountWithdrawable));
             Withdrawal(msg.sender, amountWithdrawable);
         }
