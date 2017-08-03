@@ -21,6 +21,7 @@ contract VestingWallet is Ownable, SafeMath {
     );
     event VestingScheduleConfirmed(
         address indexed registeredAddress,
+        address depositor,
         uint startTimeInSec,
         uint cliffTimeInSec,
         uint endTimeInSec,
@@ -53,13 +54,13 @@ contract VestingWallet is Ownable, SafeMath {
         _;
     }
 
-    modifier addressRegistrationConfirmed(address target) {
+    modifier vestingScheduleConfirmed(address target) {
         VestingSchedule storage vestingSchedule = schedules[target];
         require(vestingSchedule.registrationConfirmed);
         _;
     }
 
-    modifier addressRegistrationNotConfirmed(address target) {
+    modifier vestingScheduleNotConfirmed(address target) {
         VestingSchedule storage vestingSchedule = schedules[target];
         require(!vestingSchedule.registrationConfirmed);
         _;
@@ -111,7 +112,7 @@ contract VestingWallet is Ownable, SafeMath {
         public
         onlyOwner
         addressNotNull(_depositor)
-        addressRegistrationNotConfirmed(_addressToRegister)
+        vestingScheduleNotConfirmed(_addressToRegister)
         validVestingScheduleTimes(_startTimeInSec, _cliffTimeInSec, _endTimeInSec)
     {
         schedules[_addressToRegister] = VestingSchedule({
@@ -147,8 +148,7 @@ contract VestingWallet is Ownable, SafeMath {
     )
         public
         addressRegistered(msg.sender)
-        addressRegistrationNotConfirmed(msg.sender)
-        validVestingScheduleTimes(_startTimeInSec, _cliffTimeInSec, _endTimeInSec)
+        vestingScheduleNotConfirmed(msg.sender)
     {
         VestingSchedule storage vestingSchedule = schedules[msg.sender];
 
@@ -162,6 +162,7 @@ contract VestingWallet is Ownable, SafeMath {
 
         VestingScheduleConfirmed(
             msg.sender,
+            vestingSchedule.depositor,
             _startTimeInSec,
             _cliffTimeInSec,
             _endTimeInSec,
@@ -172,7 +173,7 @@ contract VestingWallet is Ownable, SafeMath {
     /// @dev Allows a registered address to withdraw tokens that have already been vested.
     function withdraw()
         public
-        addressRegistrationConfirmed(msg.sender)
+        vestingScheduleConfirmed(msg.sender)
         pastCliffTime(msg.sender)
     {
         VestingSchedule storage vestingSchedule = schedules[msg.sender];
@@ -193,7 +194,7 @@ contract VestingWallet is Ownable, SafeMath {
     function endVesting(address _addressToEnd, address _addressToRefund)
         public
         onlyOwner
-        addressRegistrationConfirmed(_addressToEnd)
+        vestingScheduleConfirmed(_addressToEnd)
         addressNotNull(_addressToRefund)
     {
         VestingSchedule storage vestingSchedule = schedules[_addressToEnd];
@@ -220,7 +221,7 @@ contract VestingWallet is Ownable, SafeMath {
     /// @param _newRegisteredAddress Desired address to update to.
     function requestAddressChange(address _newRegisteredAddress)
         public
-        addressRegistrationConfirmed(msg.sender)
+        vestingScheduleConfirmed(msg.sender)
         addressNotRegistered(_newRegisteredAddress)
         addressNotNull(_newRegisteredAddress)
     {
