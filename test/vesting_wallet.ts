@@ -142,7 +142,7 @@ contract('VestingWallet', (accounts: string[]) => {
                 registeredTotalAmount,
                 registeredTotalAmountWithdrawn,
                 registeredDepositor,
-                registrationConfirmed,
+                isConfirmed,
             ] = scheduleArray;
 
             const expectedTotalAmountWithdrawnString = '0';
@@ -152,7 +152,7 @@ contract('VestingWallet', (accounts: string[]) => {
             assert.equal(registeredTotalAmount.toString(), totalAmount.toString());
             assert.equal(registeredTotalAmountWithdrawn.toString(), expectedTotalAmountWithdrawnString);
             assert.equal(registeredDepositor, depositor);
-            assert.equal(registrationConfirmed, false);
+            assert.equal(isConfirmed, false);
         });
 
         it('should register a vesting schedule and log the correct events when called by owner', async () => {
@@ -205,7 +205,7 @@ contract('VestingWallet', (accounts: string[]) => {
                 registeredTotalAmount,
                 registeredTotalAmountWithdrawn,
                 registeredDepositor,
-                registrationConfirmed,
+                isConfirmed,
             ] = scheduleArray;
 
             const expectedTotalAmountWithdrawnString = '0';
@@ -215,7 +215,7 @@ contract('VestingWallet', (accounts: string[]) => {
             assert.equal(registeredTotalAmount.toString(), newTotalAmount.toString());
             assert.equal(registeredTotalAmountWithdrawn.toString(), expectedTotalAmountWithdrawnString);
             assert.equal(registeredDepositor, newDepositor);
-            assert.equal(registrationConfirmed, false);
+            assert.equal(isConfirmed, false);
         });
 
         it('should throw if vesting schedule is already confirmed', async () => {
@@ -387,8 +387,8 @@ contract('VestingWallet', (accounts: string[]) => {
                                                        {from: addressToRegister});
 
             const scheduleArray = await vestingWallet.schedules.call(addressToRegister);
-            const registrationConfirmed = scheduleArray[6];
-            assert.equal(registrationConfirmed, true);
+            const isConfirmed = scheduleArray[6];
+            assert.equal(isConfirmed, true);
 
             const logs = res.logs;
             assert.equal(logs.length, 1);

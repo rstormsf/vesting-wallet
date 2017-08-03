@@ -39,7 +39,7 @@ contract VestingWallet is Ownable, SafeMath {
         uint totalAmount;
         uint totalAmountWithdrawn;
         address depositor;
-        bool registrationConfirmed;
+        bool isConfirmed;
     }
 
     modifier addressRegistered(address target) {
@@ -56,13 +56,13 @@ contract VestingWallet is Ownable, SafeMath {
 
     modifier vestingScheduleConfirmed(address target) {
         VestingSchedule storage vestingSchedule = schedules[target];
-        require(vestingSchedule.registrationConfirmed);
+        require(vestingSchedule.isConfirmed);
         _;
     }
 
     modifier vestingScheduleNotConfirmed(address target) {
         VestingSchedule storage vestingSchedule = schedules[target];
-        require(!vestingSchedule.registrationConfirmed);
+        require(!vestingSchedule.isConfirmed);
         _;
     }
 
@@ -122,7 +122,7 @@ contract VestingWallet is Ownable, SafeMath {
             totalAmount: _totalAmount,
             totalAmountWithdrawn: 0,
             depositor: _depositor,
-            registrationConfirmed: false
+            isConfirmed: false
         });
 
         VestingScheduleRegistered(
@@ -157,7 +157,7 @@ contract VestingWallet is Ownable, SafeMath {
         require(vestingSchedule.endTimeInSec == _endTimeInSec);
         require(vestingSchedule.totalAmount == _totalAmount);
 
-        vestingSchedule.registrationConfirmed = true;
+        vestingSchedule.isConfirmed = true;
         require(vestingToken.transferFrom(vestingSchedule.depositor, address(this), _totalAmount));
 
         VestingScheduleConfirmed(
@@ -251,7 +251,7 @@ contract VestingWallet is Ownable, SafeMath {
     }
 
     /// @dev Calculates the total tokens that have been vested for a vesting schedule, assuming the schedule is past the cliff.
-    /// @param vestingSchedule Vesting schedule used to calcculate vested tokens.
+    /// @param vestingSchedule Vesting schedule used to calculate vested tokens.
     /// @return Total tokens vested for a vesting schedule.
     function getTotalAmountVested(VestingSchedule vestingSchedule)
         internal
