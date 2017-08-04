@@ -24,6 +24,10 @@ contract('VestingWallet', (accounts: string[]) => {
     let vestingWallet: ContractInstance;
     let vestingToken: ContractInstance;
 
+    let startTimeInSec: BigNumber.BigNumber;
+    let cliffTimeInSec: BigNumber.BigNumber;
+    let endTimeInSec: BigNumber.BigNumber;
+
     const vestingTokenMetadata: TokenMetadata = {
         name: 'vestingToken',
         symbol: 'VT',
@@ -50,13 +54,13 @@ contract('VestingWallet', (accounts: string[]) => {
                                             vestingTokenMetadata.totalSupply,
                                             {from: owner});
         vestingWallet = await VestingWallet.new(vestingToken.address, {from: owner});
-        await vestingToken.approve(vestingWallet.address, vestingTokenMetadata.totalSupply);
+        await vestingToken.approve(vestingWallet.address, vestingTokenMetadata.totalSupply, {from: depositor});
     });
 
     describe('registerVestingSchedule', () => {
-        const startTimeInSec = new BigNumber(Math.floor(Date.now() / 1000));
-        const cliffTimeInSec = startTimeInSec.plus(vestingDurationInSec / cliffTimeDivisor);
-        const endTimeInSec = startTimeInSec.plus(vestingDurationInSec);
+        startTimeInSec = new BigNumber(Math.floor(Date.now() / 1000));
+        cliffTimeInSec = startTimeInSec.plus(vestingDurationInSec / cliffTimeDivisor);
+        endTimeInSec = startTimeInSec.plus(vestingDurationInSec);
 
         it('should throw if not called by owner', async () => {
             const notOwner = registeredAddress;
@@ -106,6 +110,22 @@ contract('VestingWallet', (accounts: string[]) => {
           }
         });
 
+        it('should throw if depositor is a null address', async () => {
+          const invalidDepositor = constants.NULL_ADDRESS;
+          try {
+              await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                          invalidDepositor,
+                                                          startTimeInSec,
+                                                          cliffTimeInSec,
+                                                          endTimeInSec,
+                                                          totalAmount,
+                                                          {from: registeredAddress});
+              throw new Error('registerVestingSchedule succeeded when it should have failed');
+          } catch (err) {
+              testUtil.assertThrow(err);
+          }
+        });
+
         it('should register a vesting schedule to an address when called by owner', async () => {
             await vestingWallet.registerVestingSchedule(addressToRegister,
                                                         depositor,
@@ -116,22 +136,23 @@ contract('VestingWallet', (accounts: string[]) => {
                                                         {from: owner});
             const scheduleArray = await vestingWallet.schedules.call(addressToRegister);
             const [
-                registeredId,
                 registeredStartTimeInSec,
                 registeredCliffTimeInSec,
                 registeredEndTimeInSec,
                 registeredTotalAmount,
                 registeredTotalAmountWithdrawn,
+                registeredDepositor,
+                isConfirmed,
             ] = scheduleArray;
 
-            const expectedIdString = '1';
             const expectedTotalAmountWithdrawnString = '0';
-            assert.equal(registeredId.toString(), expectedIdString);
             assert.equal(registeredStartTimeInSec.toString(), startTimeInSec.toString());
             assert.equal(registeredCliffTimeInSec.toString(), cliffTimeInSec.toString());
             assert.equal(registeredEndTimeInSec.toString(), endTimeInSec.toString());
             assert.equal(registeredTotalAmount.toString(), totalAmount.toString());
             assert.equal(registeredTotalAmountWithdrawn.toString(), expectedTotalAmountWithdrawnString);
+            assert.equal(registeredDepositor, depositor);
+            assert.equal(isConfirmed, false);
         });
 
         it('should register a vesting schedule and log the correct events when called by owner', async () => {
@@ -146,16 +167,15 @@ contract('VestingWallet', (accounts: string[]) => {
             assert.equal(logs.length, 1);
             const logArgs = logs[0].args;
 
-            const expectedIdString = '1';
             assert.equal(logArgs.registeredAddress, addressToRegister);
-            assert.equal(logArgs.id.toString(), expectedIdString);
+            assert.equal(logArgs.depositor, depositor);
             assert.equal(logArgs.startTimeInSec.toString(), startTimeInSec.toString());
             assert.equal(logArgs.cliffTimeInSec.toString(), cliffTimeInSec.toString());
             assert.equal(logArgs.endTimeInSec.toString(), endTimeInSec.toString());
             assert.equal(logArgs.totalAmount.toString(), totalAmount.toString());
         });
 
-        it('should transfer totalAmount tokens from depositor to vestingWallet if called by owner', async () => {
+        it('should overwrite a previously registered schedule if not yet confirmed', async () => {
             await vestingWallet.registerVestingSchedule(addressToRegister,
                                                         depositor,
                                                         startTimeInSec,
@@ -163,81 +183,251 @@ contract('VestingWallet', (accounts: string[]) => {
                                                         endTimeInSec,
                                                         totalAmount,
                                                         {from: owner});
-            const ownerBalance = await vestingToken.balanceOf.call(depositor);
-            const vestingWalletBalance = await vestingToken.balanceOf.call(vestingWallet.address);
 
-            const expectedOwnerBalanceString = '0';
-            assert.equal(ownerBalance.toString(), expectedOwnerBalanceString);
+            const newDepositor = accounts[2];
+            const newStartTimeInSec = startTimeInSec.plus(100);
+            const newCliffTimeInSec = cliffTimeInSec.plus(100);
+            const newEndTimeInSec = endTimeInSec.plus(100);
+            const newTotalAmount = totalAmount.plus(100);
+
+            await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                        newDepositor,
+                                                        newStartTimeInSec,
+                                                        newCliffTimeInSec,
+                                                        newEndTimeInSec,
+                                                        newTotalAmount,
+                                                        {from: owner});
+            const scheduleArray = await vestingWallet.schedules.call(addressToRegister);
+            const [
+                registeredStartTimeInSec,
+                registeredCliffTimeInSec,
+                registeredEndTimeInSec,
+                registeredTotalAmount,
+                registeredTotalAmountWithdrawn,
+                registeredDepositor,
+                isConfirmed,
+            ] = scheduleArray;
+
+            const expectedTotalAmountWithdrawnString = '0';
+            assert.equal(registeredStartTimeInSec.toString(), newStartTimeInSec.toString());
+            assert.equal(registeredCliffTimeInSec.toString(), newCliffTimeInSec.toString());
+            assert.equal(registeredEndTimeInSec.toString(), newEndTimeInSec.toString());
+            assert.equal(registeredTotalAmount.toString(), newTotalAmount.toString());
+            assert.equal(registeredTotalAmountWithdrawn.toString(), expectedTotalAmountWithdrawnString);
+            assert.equal(registeredDepositor, newDepositor);
+            assert.equal(isConfirmed, false);
+        });
+
+        it('should throw if vesting schedule is already confirmed', async () => {
+            await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                        depositor,
+                                                        startTimeInSec,
+                                                        cliffTimeInSec,
+                                                        endTimeInSec,
+                                                        totalAmount,
+                                                        {from: owner});
+            await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                       cliffTimeInSec,
+                                                       endTimeInSec,
+                                                       totalAmount,
+                                                       {from: addressToRegister});
+
+            const newDepositor = accounts[2];
+            const newStartTimeInSec = startTimeInSec.plus(100);
+            const newCliffTimeInSec = cliffTimeInSec.plus(100);
+            const newEndTimeInSec = endTimeInSec.plus(100);
+            const newTotalAmount = totalAmount.plus(100);
+
+            try {
+                await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                            newDepositor,
+                                                            newStartTimeInSec,
+                                                            newCliffTimeInSec,
+                                                            newEndTimeInSec,
+                                                            newTotalAmount,
+                                                            {from: owner});
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+    });
+
+    describe('confirmVestingSchedule', () => {
+        beforeEach(async () => {
+            const blockTimestamp = await getBlockTimestampAsync();
+
+            startTimeInSec = new BigNumber(blockTimestamp);
+            cliffTimeInSec = startTimeInSec.plus(vestingDurationInSec / cliffTimeDivisor);
+            endTimeInSec = startTimeInSec.plus(vestingDurationInSec);
+
+            await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                        depositor,
+                                                        startTimeInSec,
+                                                        cliffTimeInSec,
+                                                        endTimeInSec,
+                                                        totalAmount,
+                                                        {from: owner});
+        });
+
+        it('should throw if caller vesting schedule not registered', async () => {
+            vestingWallet = await VestingWallet.new(vestingToken.address, {from: owner});
+            await vestingToken.approve(vestingWallet.address, vestingTokenMetadata.totalSupply, {from: depositor});
+            try {
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           cliffTimeInSec,
+                                                           endTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+
+        it('should throw if startTimeInSec is different from the registered startTimeInSec', async () => {
+            const invalidStartTimeInSec = startTimeInSec.plus(100);
+            try {
+                await vestingWallet.confirmVestingSchedule(invalidStartTimeInSec,
+                                                           cliffTimeInSec,
+                                                           endTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+
+        it('should throw if cliffTimeInSec is different from the registered cliffTimeInSec', async () => {
+            const invalidCliffTimeInSec = cliffTimeInSec.plus(100);
+            try {
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           invalidCliffTimeInSec,
+                                                           endTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+
+        it('should throw if endTimeInSec is different from the registered endTimeInSec', async () => {
+            const invalidEndTimeInSec = endTimeInSec.plus(100);
+            try {
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           cliffTimeInSec,
+                                                           invalidEndTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+
+        it('should throw if totalAmount is different from the registered totalAmount', async () => {
+            const invalidTotalAmount = totalAmount.plus(100);
+            try {
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           cliffTimeInSec,
+                                                           endTimeInSec,
+                                                           invalidTotalAmount,
+                                                           {from: addressToRegister});
+            } catch (err) {
+                testUtil.assertThrow(err);
+            }
+        });
+
+        it('should transfer totalAmount tokens from depositor to vestingWallet', async () => {
+            await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                       cliffTimeInSec,
+                                                       endTimeInSec,
+                                                       totalAmount,
+                                                       {from: addressToRegister});
+
+            const depositorBalance = await vestingToken.balanceOf.call(depositor);
+            const vestingWalletBalance = await vestingToken.balanceOf.call(vestingWallet.address);
+            const expectedDepositorBalanceString = '0';
+            assert.equal(depositorBalance.toString(), expectedDepositorBalanceString);
             assert.equal(vestingWalletBalance.toString(), totalAmount.toString());
         });
 
-        it('should throw if owner has insufficient balance to deposit', async () => {
+        it('should throw if depositor has insufficient balance to deposit', async () => {
             const newBalance = new BigNumber(0);
             await vestingToken.setBalance(depositor, newBalance, {from: owner});
-
             try {
-                await vestingWallet.registerVestingSchedule(addressToRegister,
-                                                            depositor,
-                                                            startTimeInSec,
-                                                            cliffTimeInSec,
-                                                            endTimeInSec,
-                                                            totalAmount,
-                                                            {from: owner});
-                throw new Error('registerVestingSchedule succeeded when it should have failed');
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           cliffTimeInSec,
+                                                           endTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+                throw new Error('confirmVestingSchedule succeeded when it should have failed');
             } catch (err) {
                 testUtil.assertThrow(err);
             }
         });
 
-        it('should throw if owner has insufficient allowances to deposit', async () => {
+        it('should throw if depositor has insufficient allowances to deposit', async () => {
             const newAllowance = new BigNumber(0);
-            await vestingToken.approve(vestingWallet.address, newAllowance, {from: owner});
-
+            await vestingToken.approve(vestingWallet.address, newAllowance, {from: depositor});
             try {
-                await vestingWallet.registerVestingSchedule(addressToRegister,
-                                                            depositor,
-                                                            startTimeInSec,
-                                                            cliffTimeInSec,
-                                                            endTimeInSec,
-                                                            totalAmount,
-                                                            {from: owner});
-                throw new Error('registerVestingSchedule succeeded when it should have failed');
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           cliffTimeInSec,
+                                                           endTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+                throw new Error('confirmVestingSchedule succeeded when it should have failed');
             } catch (err) {
                 testUtil.assertThrow(err);
             }
         });
 
-        it('should throw if address is already registered', async () => {
-            await vestingWallet.registerVestingSchedule(addressToRegister,
-                                                        depositor,
-                                                        startTimeInSec,
-                                                        cliffTimeInSec,
-                                                        endTimeInSec,
-                                                        totalAmount,
-                                                        {from: owner});
+        it('should confirm the vesting schedule and log correct events when called with valid args', async () => {
+            const res: ContractResponse = await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                       cliffTimeInSec,
+                                                       endTimeInSec,
+                                                       totalAmount,
+                                                       {from: addressToRegister});
 
+            const scheduleArray = await vestingWallet.schedules.call(addressToRegister);
+            const isConfirmed = scheduleArray[6];
+            assert.equal(isConfirmed, true);
+
+            const logs = res.logs;
+            assert.equal(logs.length, 1);
+            const logArgs = logs[0].args;
+
+            assert.equal(logArgs.registeredAddress, addressToRegister);
+            assert.equal(logArgs.depositor, depositor);
+            assert.equal(logArgs.startTimeInSec.toString(), startTimeInSec.toString());
+            assert.equal(logArgs.cliffTimeInSec.toString(), cliffTimeInSec.toString());
+            assert.equal(logArgs.endTimeInSec.toString(), endTimeInSec.toString());
+            assert.equal(logArgs.totalAmount.toString(), totalAmount.toString());
+        });
+
+        it('should throw if caller vesting schedule has already been confirmed', async () => {
+            await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                       cliffTimeInSec,
+                                                       endTimeInSec,
+                                                       totalAmount,
+                                                       {from: addressToRegister});
             try {
-                await vestingWallet.registerVestingSchedule(addressToRegister,
-                                                            depositor,
-                                                            startTimeInSec,
-                                                            cliffTimeInSec,
-                                                            endTimeInSec,
-                                                            totalAmount,
-                                                            {from: owner});
-                throw new Error('registerVestingSchedule succeeded when it should have failed');
+                await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                           cliffTimeInSec,
+                                                           endTimeInSec,
+                                                           totalAmount,
+                                                           {from: addressToRegister});
+                throw new Error('confirmVestingSchedule succeeded when it should have failed');
             } catch (err) {
                 testUtil.assertThrow(err);
             }
         });
     });
 
-    describe('withdraw', () => {
+    describe('after confirmation', () => {
         beforeEach(async () => {
             const blockTimestamp = await getBlockTimestampAsync();
 
-            const startTimeInSec = new BigNumber(blockTimestamp);
-            const cliffTimeInSec = startTimeInSec.plus(vestingDurationInSec / cliffTimeDivisor);
-            const endTimeInSec = startTimeInSec.plus(vestingDurationInSec);
+            startTimeInSec = new BigNumber(blockTimestamp);
+            cliffTimeInSec = startTimeInSec.plus(vestingDurationInSec / cliffTimeDivisor);
+            endTimeInSec = startTimeInSec.plus(vestingDurationInSec);
 
             await vestingWallet.registerVestingSchedule(addressToRegister,
                                                         depositor,
@@ -246,361 +436,380 @@ contract('VestingWallet', (accounts: string[]) => {
                                                         endTimeInSec,
                                                         totalAmount,
                                                         {from: owner});
+            await vestingWallet.confirmVestingSchedule(startTimeInSec,
+                                                       cliffTimeInSec,
+                                                       endTimeInSec,
+                                                       totalAmount,
+                                                       {from: addressToRegister});
         });
 
-        it('throw if called from an unregistered address', async () => {
-            try {
-                const unregisteredAddress = owner;
-                await vestingWallet.withdraw({from: unregisteredAddress});
-                throw new Error('withdraw succeeded when it should have failed');
-            } catch (err) {
-                testUtil.assertThrow(err);
-            }
-        });
+        describe('withdraw', () => {
+            it('throw if caller vesting schedule is not confirmed', async () => {
+                vestingWallet = await VestingWallet.new(vestingToken.address, {from: owner});
+                await vestingToken.approve(vestingWallet.address, vestingTokenMetadata.totalSupply, {from: depositor});
+                await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                            depositor,
+                                                            startTimeInSec,
+                                                            cliffTimeInSec,
+                                                            endTimeInSec,
+                                                            totalAmount,
+                                                            {from: owner});
+                try {
+                    await vestingWallet.withdraw({from: addressToRegister});
+                    throw new Error('withdraw succeeded when it should have failed');
+                } catch (err) {
+                    testUtil.assertThrow(err);
+                }
+            });
 
-        it('should throw if a registered address attempts to withdraw before the cliff time', async () => {
-            try {
+            it('should throw if a confirmed address attempts to withdraw before the cliff time', async () => {
+                try {
+                    await vestingWallet.withdraw({from: registeredAddress});
+                    throw new Error('withdraw succeeded when it should have failed');
+                } catch (err) {
+                    testUtil.assertThrow(err);
+                }
+            });
+
+            it('should allow a confirmed address to withdraw vested tokens after the cliff', async () => {
+                const percentageVested = 0.5;
+                const timeToIncreaseInSec = percentageVested * vestingDurationInSec;
+                await rpc.increaseTimeAsync(timeToIncreaseInSec);
+
                 await vestingWallet.withdraw({from: registeredAddress});
-                throw new Error('withdraw succeeded when it should have failed');
-            } catch (err) {
-                testUtil.assertThrow(err);
-            }
+                const registeredAddressBalance = await vestingToken.balanceOf(registeredAddress);
+                const vestingWalletBalance = await vestingToken.balanceOf(vestingWallet.address);
+
+                const expectedRegisteredAddressBalance = new BigNumber(totalAmount).times(percentageVested);
+                const expectedVestingWalletBalance = new BigNumber(totalAmount).times(1 - percentageVested);
+
+                assert.equal(registeredAddressBalance.toString(), expectedRegisteredAddressBalance.toString());
+                assert.equal(vestingWalletBalance.toString(), expectedVestingWalletBalance.toString());
+            });
+
+            it('should log the correct arguments after a successful withdrawal', async () => {
+                const percentageVested = 0.5;
+                const timeToIncreaseInSec = percentageVested * vestingDurationInSec;
+                await rpc.increaseTimeAsync(timeToIncreaseInSec);
+
+                const res: ContractResponse = await vestingWallet.withdraw({from: registeredAddress});
+                const logs = res.logs;
+                assert.equal(logs.length, 1);
+
+                const logArgs = logs[0].args;
+                const expectedAmountWithdrawn = new BigNumber(totalAmount).times(percentageVested);
+                assert.equal(logArgs.registeredAddress, registeredAddress);
+                assert.equal(logArgs.amountWithdrawn.toString(), expectedAmountWithdrawn.toString());
+            });
+
+            it('should withdraw the correct amount after a withdrawal has already been made', async () => {
+                const initialPercentageVested = 0.5;
+                let timeToIncreaseInSec = initialPercentageVested * vestingDurationInSec;
+                await rpc.increaseTimeAsync(timeToIncreaseInSec);
+
+                await vestingWallet.withdraw({from: registeredAddress});
+
+                const finalPercentageVested = .25;
+                timeToIncreaseInSec = finalPercentageVested * vestingDurationInSec;
+                await rpc.increaseTimeAsync(timeToIncreaseInSec);
+
+                await vestingWallet.withdraw({from: registeredAddress});
+                const registeredAddressBalance = await vestingToken.balanceOf(registeredAddress);
+                const vestingWalletBalance = await vestingToken.balanceOf(vestingWallet.address);
+
+                const totalPercentageVested = initialPercentageVested + finalPercentageVested;
+                const expectedRegisteredAddressBalance = new BigNumber(totalAmount).times(totalPercentageVested);
+                const expectedVestingWalletBalance = new BigNumber(totalAmount).times(1 - totalPercentageVested);
+
+                assert.equal(registeredAddressBalance.toString(), expectedRegisteredAddressBalance.toString());
+                assert.equal(vestingWalletBalance.toString(), expectedVestingWalletBalance.toString());
+            });
+
+            it('should withdraw the correct amount when past end time of the vesting schedule', async () => {
+                const percentageVested = 5;
+                const timeToIncreaseInSec = percentageVested * vestingDurationInSec;
+                await rpc.increaseTimeAsync(timeToIncreaseInSec);
+
+                await vestingWallet.withdraw({from: registeredAddress});
+                const registeredAddressBalance = await vestingToken.balanceOf(registeredAddress);
+                const vestingWalletBalance = await vestingToken.balanceOf(vestingWallet.address);
+
+                const expectedRegisteredAddressBalance = new BigNumber(totalAmount);
+                const expectedVestingWalletBalance = new BigNumber(0);
+
+                assert.equal(registeredAddressBalance.toString(), expectedRegisteredAddressBalance.toString());
+                assert.equal(vestingWalletBalance.toString(), expectedVestingWalletBalance.toString());
+            });
+
+            it('should not log an event if withdrawable amount is 0', async () => {
+                const percentageVested = 1;
+                const timeToIncreaseInSec = percentageVested * vestingDurationInSec;
+                await rpc.increaseTimeAsync(timeToIncreaseInSec);
+
+                await vestingWallet.withdraw({from: registeredAddress});
+                const res: ContractResponse = await vestingWallet.withdraw({from: registeredAddress});
+                const logs = res.logs;
+                assert.equal(logs.length, 0);
+            });
         });
 
-        it('should allow a registered address to withdraw vested tokens after the cliff', async () => {
-            const percentageVested = .5;
-            const timeToIncreaseInSec = percentageVested * vestingDurationInSec;
-            await rpc.increaseTimeAsync(timeToIncreaseInSec);
+        describe('endVesting', () => {
+            it('should throw if not called by owner', async () => {
+                const addressToEnd = registeredAddress;
+                const addressToRefund = owner;
+                const notOwner = accounts[1];
 
-            await vestingWallet.withdraw({from: registeredAddress});
-            const registeredAddressBalance = await vestingToken.balanceOf(registeredAddress);
-            const vestingWalletBalance = await vestingToken.balanceOf(vestingWallet.address);
+                try {
+                    await vestingWallet.endVesting(addressToEnd, addressToRefund, {from: notOwner});
+                    throw new Error('endVesting succeeded when it should have failed');
+                } catch (err) {
+                    testUtil.assertThrow(err);
+                }
+            });
 
-            const expectedRegisteredAddressBalance = new BigNumber(totalAmount).times(percentageVested);
-            const expectedVestingWalletBalance = new BigNumber(totalAmount).times(1 - percentageVested);
+            it('should throw if called on an unregistered address', async () => {
+                const invalidOldRegisteredAddress = accounts[2];
+                const addressToRefund = owner;
+                try {
+                    await vestingWallet.endVesting(invalidOldRegisteredAddress, addressToRefund, {from: owner});
+                    throw new Error('endVesting succeeded when it should have failed');
+                } catch (err) {
+                    testUtil.assertThrow(err);
+                }
+            });
 
-            assert.equal(registeredAddressBalance.toString(), expectedRegisteredAddressBalance.toString());
-            assert.equal(vestingWalletBalance.toString(), expectedVestingWalletBalance.toString());
-        });
+            it('should throw if called on an unconfirmed address', async () => {
+                vestingWallet = await VestingWallet.new(vestingToken.address, {from: owner});
+                await vestingToken.approve(vestingWallet.address, vestingTokenMetadata.totalSupply, {from: depositor});
+                await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                            depositor,
+                                                            startTimeInSec,
+                                                            cliffTimeInSec,
+                                                            endTimeInSec,
+                                                            totalAmount,
+                                                            {from: owner});
+                const addressToRefund = owner;
+                try {
+                    await vestingWallet.endVesting(addressToRegister, addressToRefund, {from: owner});
+                    throw new Error('endVesting succeeded when it should have failed');
+                } catch (err) {
+                    testUtil.assertThrow(err);
+                }
+            });
 
-        it('should log the correct arguments after a successful withdrawal', async () => {
-            const percentageVested = .5;
-            const timeToIncreaseInSec = percentageVested * vestingDurationInSec;
-            await rpc.increaseTimeAsync(timeToIncreaseInSec);
+            it('should throw if addressToRefund is a null address', async () => {
+                const addressToEnd = registeredAddress;
+                const addressToRefund = constants.NULL_ADDRESS;
+                try {
+                    await vestingWallet.endVesting(addressToEnd, addressToRefund, {from: owner});
+                    throw new Error('endVesting succeeded when it should have failed');
+                } catch (err) {
+                    testUtil.assertThrow(err);
+                }
+            });
 
-            const res: ContractResponse = await vestingWallet.withdraw({from: registeredAddress});
-            const logs = res.logs;
-            assert.equal(logs.length, 1);
+            it('should transfer the correct amounts if vesting is ended earlier than cliffTimeInSec', async () => {
+                const addressToEnd = registeredAddress;
+                const addressToRefund = owner;
 
-            const logArgs = logs[0].args;
-            const expectedAmountWithdrawn = new BigNumber(totalAmount).times(percentageVested);
-            assert.equal(logArgs.registeredAddress, registeredAddress);
-            assert.equal(logArgs.amountWithdrawn.toString(), expectedAmountWithdrawn.toString());
-        });
-
-        it('should withdraw the correct amount after a withdrawal has already been made', async () => {
-            const initialPercentageVested = .5;
-            let timeToIncreaseInSec = initialPercentageVested * vestingDurationInSec;
-            await rpc.increaseTimeAsync(timeToIncreaseInSec);
-
-            await vestingWallet.withdraw({from: registeredAddress});
-
-            const finalPercentageVested = .25;
-            timeToIncreaseInSec = finalPercentageVested * vestingDurationInSec;
-            await rpc.increaseTimeAsync(timeToIncreaseInSec);
-
-            await vestingWallet.withdraw({from: registeredAddress});
-            const registeredAddressBalance = await vestingToken.balanceOf(registeredAddress);
-            const vestingWalletBalance = await vestingToken.balanceOf(vestingWallet.address);
-
-            const totalPercentageVested = initialPercentageVested + finalPercentageVested;
-            const expectedRegisteredAddressBalance = new BigNumber(totalAmount).times(totalPercentageVested);
-            const expectedVestingWalletBalance = new BigNumber(totalAmount).times(1 - totalPercentageVested);
-
-            assert.equal(registeredAddressBalance.toString(), expectedRegisteredAddressBalance.toString());
-            assert.equal(vestingWalletBalance.toString(), expectedVestingWalletBalance.toString());
-        });
-
-        it('should withdraw the correct amount when past end time of the vesting schedule', async () => {
-            const percentageVested = 5;
-            const timeToIncreaseInSec = percentageVested * vestingDurationInSec;
-            await rpc.increaseTimeAsync(timeToIncreaseInSec);
-
-            await vestingWallet.withdraw({from: registeredAddress});
-            const registeredAddressBalance = await vestingToken.balanceOf(registeredAddress);
-            const vestingWalletBalance = await vestingToken.balanceOf(vestingWallet.address);
-
-            const expectedRegisteredAddressBalance = new BigNumber(totalAmount);
-            const expectedVestingWalletBalance = new BigNumber(0);
-
-            assert.equal(registeredAddressBalance.toString(), expectedRegisteredAddressBalance.toString());
-            assert.equal(vestingWalletBalance.toString(), expectedVestingWalletBalance.toString());
-        });
-    });
-
-    describe('endVesting', () => {
-        beforeEach(async () => {
-            const blockTimestamp = await getBlockTimestampAsync();
-
-            const startTimeInSec = new BigNumber(blockTimestamp);
-            const cliffTimeInSec = startTimeInSec.plus(vestingDurationInSec / cliffTimeDivisor);
-            const endTimeInSec = startTimeInSec.plus(vestingDurationInSec);
-
-            await vestingWallet.registerVestingSchedule(addressToRegister,
-                                                        depositor,
-                                                        startTimeInSec,
-                                                        cliffTimeInSec,
-                                                        endTimeInSec,
-                                                        totalAmount,
-                                                        {from: owner});
-        });
-
-        it('should throw if not called by owner', async () => {
-          const addressToEnd = registeredAddress;
-          const addressToRefund = owner;
-          const notOwner = accounts[1];
-
-          try {
-              await vestingWallet.endVesting(addressToEnd, addressToRefund, {from: notOwner});
-              throw new Error('endVesting succeeded when it should have failed');
-          } catch (err) {
-              testUtil.assertThrow(err);
-          }
-        });
-
-        it('should throw if called on an unregistered address', async () => {
-          const invalidOldRegisteredAddress = accounts[2];
-          const addressToRefund = owner;
-
-          try {
-              await vestingWallet.endVesting(invalidOldRegisteredAddress, addressToRefund, {from: owner});
-              throw new Error('endVesting succeeded when it should have failed');
-          } catch (err) {
-              testUtil.assertThrow(err);
-          }
-        });
-
-        it('should throw if addressToRefund is a null address', async () => {
-            const addressToEnd = registeredAddress;
-            const addressToRefund = constants.NULL_ADDRESS;
-
-            try {
                 await vestingWallet.endVesting(addressToEnd, addressToRefund, {from: owner});
-                throw new Error('endVesting succeeded when it should have failed');
-            } catch (err) {
-                testUtil.assertThrow(err);
-            }
+                const addressToEndBalance = await vestingToken.balanceOf(addressToEnd);
+                const addressToRefundBalance = await vestingToken.balanceOf(addressToRefund);
+
+                const expectedAddressToEndBalanceString = '0';
+                assert.equal(addressToEndBalance.toString(), expectedAddressToEndBalanceString);
+                assert.equal(addressToRefundBalance.toString(), totalAmount);
+            });
+
+            it('should transfer the correct amounts if vesting is ended past cliffTimeInSec', async () => {
+                const addressToEnd = registeredAddress;
+                const addressToRefund = owner;
+
+                const timeToIncreaseInSec = vestingDurationInSec / cliffTimeDivisor;
+                await rpc.increaseTimeAsync(timeToIncreaseInSec);
+
+                await vestingWallet.endVesting(addressToEnd, addressToRefund, {from: owner});
+                const addressToEndBalance = await vestingToken.balanceOf(addressToEnd);
+                const addressToRefundBalance = await vestingToken.balanceOf(addressToRefund);
+
+                const expectedAddressToEndBalance = totalAmount.div(cliffTimeDivisor);
+                const expectedAddressToRefundBalance = totalAmount.minus(expectedAddressToEndBalance);
+
+                assert.equal(addressToEndBalance.toString(), expectedAddressToEndBalance.toString());
+                assert.equal(addressToRefundBalance.toString(), expectedAddressToRefundBalance.toString());
+            });
         });
 
-        it('should transfer the correct amounts if vesting is ended earlier than cliffTimeInSec', async () => {
-            const addressToEnd = registeredAddress;
-            const addressToRefund = owner;
-
-            await vestingWallet.endVesting(addressToEnd, addressToRefund, {from: owner});
-            const addressToEndBalance = await vestingToken.balanceOf(addressToEnd);
-            const addressToRefundBalance = await vestingToken.balanceOf(addressToRefund);
-
-            const expectedAddressToEndBalanceString = 0;
-            assert.equal(addressToEndBalance.toString(), expectedAddressToEndBalanceString);
-            assert.equal(addressToRefundBalance.toString(), totalAmount);
-        });
-
-        it('should transfer the correct amounts if vesting is ended past cliffTimeInSec', async () => {
-            const addressToEnd = registeredAddress;
-            const addressToRefund = owner;
-
-            const timeToIncreaseInSec = vestingDurationInSec / cliffTimeDivisor;
-            await rpc.increaseTimeAsync(timeToIncreaseInSec);
-
-            await vestingWallet.endVesting(addressToEnd, addressToRefund, {from: owner});
-            const addressToEndBalance = await vestingToken.balanceOf(addressToEnd);
-            const addressToRefundBalance = await vestingToken.balanceOf(addressToRefund);
-
-            const expectedAddressToEndBalance = totalAmount.div(cliffTimeDivisor);
-            const expectedAddressToRefundBalance = totalAmount.minus(expectedAddressToEndBalance);
-
-            assert.equal(addressToEndBalance.toString(), expectedAddressToEndBalance.toString());
-            assert.equal(addressToRefundBalance.toString(), expectedAddressToRefundBalance.toString());
-        });
-    });
-
-    describe('requestAddressChange', () => {
-        const newRegisteredAddress = accounts[2];
-
-        beforeEach(async () => {
-            const startTimeInSec = new BigNumber(Math.floor(Date.now() / 1000));
-            const cliffTimeInSec = startTimeInSec.plus(vestingDurationInSec / cliffTimeDivisor);
-            const endTimeInSec = startTimeInSec.plus(vestingDurationInSec);
-
-            await vestingWallet.registerVestingSchedule(addressToRegister,
-                                                        depositor,
-                                                        startTimeInSec,
-                                                        cliffTimeInSec,
-                                                        endTimeInSec,
-                                                        totalAmount,
-                                                        {from: owner});
-        });
-
-        it('should throw if called from an unregistered address', async () => {
-            const unregisteredAddress = owner;
-
-            try {
-                await vestingWallet.requestAddressChange(newRegisteredAddress, {from: unregisteredAddress});
-                throw new Error('requestAddressChange succeeded when it should have failed');
-            } catch (err) {
-                testUtil.assertThrow(err);
-            }
-        });
-
-        it('should throw if newRegisteredAddress is a null address', async () => {
-            const invalidNewRegisteredAddress = constants.NULL_ADDRESS;
-
-            try {
-                await vestingWallet.requestAddressChange(invalidNewRegisteredAddress, {from: registeredAddress});
-                throw new Error('requestAddressChange succeeded when it should have failed');
-            } catch (err) {
-                testUtil.assertThrow(err);
-            }
-        });
-
-        it('should request an address change if called from a registered address', async () => {
-            await vestingWallet.requestAddressChange(newRegisteredAddress, {from: registeredAddress});
-            const requestedAddress = await vestingWallet.addressChangeRequests.call(registeredAddress);
-            assert.equal(requestedAddress, newRegisteredAddress);
-        });
-
-        it('should log the correct args if request is successful', async () => {
-            const res: ContractResponse = await vestingWallet.requestAddressChange(newRegisteredAddress,
-                                                                                   {from: registeredAddress});
-            const logs = res.logs;
-            assert.equal(res.logs.length, 1);
-
-            const logArgs = logs[0].args;
-            assert.equal(logArgs.oldRegisteredAddress, registeredAddress);
-            assert.equal(logArgs.newRegisteredAddress, newRegisteredAddress);
-        });
-    });
-
-    describe('confirmAddressChange', () => {
-        const startTimeInSec = new BigNumber(Math.floor(Date.now() / 1000));
-        const cliffTimeInSec = startTimeInSec.plus(vestingDurationInSec / cliffTimeDivisor);
-        const endTimeInSec = startTimeInSec.plus(vestingDurationInSec);
-
-        beforeEach(async () => {
-            await vestingWallet.registerVestingSchedule(addressToRegister,
-                                                        depositor,
-                                                        startTimeInSec,
-                                                        cliffTimeInSec,
-                                                        endTimeInSec,
-                                                        totalAmount,
-                                                        {from: owner});
-        });
-
-        it('should throw if there is no pending request', async () => {
-            const oldRegisteredAddress = registeredAddress;
+        describe('requestAddressChange', () => {
             const newRegisteredAddress = accounts[2];
+            it('should throw if called from an unregistered address', async () => {
+                const unregisteredAddress = owner;
+                try {
+                    await vestingWallet.requestAddressChange(newRegisteredAddress, {from: unregisteredAddress});
+                    throw new Error('requestAddressChange succeeded when it should have failed');
+                } catch (err) {
+                    testUtil.assertThrow(err);
+                }
+            });
 
-            try {
+            it('should throw if called from an unconfirmed address', async () => {
+                vestingWallet = await VestingWallet.new(vestingToken.address, {from: owner});
+                await vestingToken.approve(vestingWallet.address, vestingTokenMetadata.totalSupply, {from: depositor});
+                await vestingWallet.registerVestingSchedule(addressToRegister,
+                                                            depositor,
+                                                            startTimeInSec,
+                                                            cliffTimeInSec,
+                                                            endTimeInSec,
+                                                            totalAmount,
+                                                            {from: owner});
+                try {
+                    await vestingWallet.requestAddressChange(newRegisteredAddress, {from: addressToRegister});
+                    throw new Error('requestAddressChange succeeded when it should have failed');
+                } catch (err) {
+                    testUtil.assertThrow(err);
+                }
+            });
+
+            it('should throw if newRegisteredAddress is a null address', async () => {
+                const invalidNewRegisteredAddress = constants.NULL_ADDRESS;
+                try {
+                    await vestingWallet.requestAddressChange(invalidNewRegisteredAddress, {from: registeredAddress});
+                    throw new Error('requestAddressChange succeeded when it should have failed');
+                } catch (err) {
+                    testUtil.assertThrow(err);
+                }
+            });
+
+            it('should request an address change if called from a confirmed address', async () => {
+                await vestingWallet.requestAddressChange(newRegisteredAddress, {from: registeredAddress});
+                const requestedAddress = await vestingWallet.addressChangeRequests.call(registeredAddress);
+                assert.equal(requestedAddress, newRegisteredAddress);
+            });
+
+            it('should log the correct args if request is successful', async () => {
+                const res: ContractResponse = await vestingWallet.requestAddressChange(newRegisteredAddress,
+                                                                                       {from: registeredAddress});
+                const logs = res.logs;
+                assert.equal(res.logs.length, 1);
+
+                const logArgs = logs[0].args;
+                assert.equal(logArgs.oldRegisteredAddress, registeredAddress);
+                assert.equal(logArgs.newRegisteredAddress, newRegisteredAddress);
+            });
+        });
+
+        describe('confirmAddressChange', () => {
+            it('should throw if there is no pending request', async () => {
+                const oldRegisteredAddress = registeredAddress;
+                const newRegisteredAddress = accounts[2];
+                try {
+                    await vestingWallet.confirmAddressChange(oldRegisteredAddress, newRegisteredAddress, {from: owner});
+                    throw new Error('confirmAddressChange succeeded when it should have failed');
+                } catch (err) {
+                    testUtil.assertThrow(err);
+                }
+            });
+
+            it('should throw if newRegisteredAddress is already registered', async () => {
+                const oldRegisteredAddress = registeredAddress;
+                const newRegisteredAddress = accounts[2];
+                await vestingWallet.requestAddressChange(newRegisteredAddress, {from: oldRegisteredAddress});
+                await vestingWallet.registerVestingSchedule(newRegisteredAddress,
+                                                            depositor,
+                                                            startTimeInSec,
+                                                            cliffTimeInSec,
+                                                            endTimeInSec,
+                                                            totalAmount,
+                                                            {from: owner});
+                try {
+                    await vestingWallet.confirmAddressChange(oldRegisteredAddress, newRegisteredAddress, {from: owner});
+                    throw new Error('confirmAddressChange succeeded when it should have failed');
+                } catch (err) {
+                    testUtil.assertThrow(err);
+                }
+            });
+
+            it('should throw if newRegisteredAddress is different from the requested address', async () => {
+                const oldRegisteredAddress = registeredAddress;
+                const newRegisteredAddress = accounts[2];
+                const invalidNewRegisteredAddress = owner;
+                await vestingWallet.requestAddressChange(newRegisteredAddress, {from: oldRegisteredAddress});
+                try {
+                    await vestingWallet.confirmAddressChange(oldRegisteredAddress,
+                                                             invalidNewRegisteredAddress,
+                                                             {from: owner});
+                    throw new Error('confirmAddressChange succeeded when it should have failed');
+                } catch (err) {
+                    testUtil.assertThrow(err);
+                }
+            });
+
+            it('should migrate the vesting schedule to a new address with valid args', async () => {
+                const oldRegisteredAddress = registeredAddress;
+                const newRegisteredAddress = accounts[2];
+
+                await vestingWallet.requestAddressChange(newRegisteredAddress, {from: oldRegisteredAddress});
                 await vestingWallet.confirmAddressChange(oldRegisteredAddress, newRegisteredAddress, {from: owner});
-                throw new Error('confirmAddressChange succeeded when it should have failed');
-            } catch (err) {
-                testUtil.assertThrow(err);
-            }
-        });
 
-        it('should throw if newRegisteredAddress is already registered', async () => {
-            const oldRegisteredAddress = registeredAddress;
-            const newRegisteredAddress = registeredAddress;
+                const oldScheduleArray = await vestingWallet.schedules.call(oldRegisteredAddress);
+                const [
+                    oldRegisteredStartTimeInSec,
+                    oldRegisteredCliffTimeInSec,
+                    oldRegisteredEndTimeInSec,
+                    oldRegisteredTotalAmount,
+                    oldRegisteredTotalAmountWithdrawn,
+                    oldDepositor,
+                    oldRegistrationConfirmed,
+                ] = oldScheduleArray;
 
-            await vestingWallet.requestAddressChange(newRegisteredAddress, {from: oldRegisteredAddress});
+                const nullUintString = '0';
+                assert.equal(oldRegisteredStartTimeInSec.toString(), nullUintString);
+                assert.equal(oldRegisteredCliffTimeInSec.toString(), nullUintString);
+                assert.equal(oldRegisteredEndTimeInSec.toString(), nullUintString);
+                assert.equal(oldRegisteredTotalAmount.toString(), nullUintString);
+                assert.equal(oldRegisteredTotalAmountWithdrawn.toString(), nullUintString);
+                assert.equal(oldDepositor, constants.NULL_ADDRESS);
+                assert.equal(oldRegistrationConfirmed, false);
 
-            try {
-                await vestingWallet.confirmAddressChange(oldRegisteredAddress, newRegisteredAddress, {from: owner});
-                throw new Error('confirmAddressChange succeeded when it should have failed');
-            } catch (err) {
-                testUtil.assertThrow(err);
-            }
-        });
+                const newScheduleArray = await vestingWallet.schedules.call(newRegisteredAddress);
+                const [
+                    newRegisteredStartTimeInSec,
+                    newRegisteredCliffTimeInSec,
+                    newRegisteredEndTimeInSec,
+                    newRegisteredTotalAmount,
+                    newRegisteredTotalAmountWithdrawn,
+                    newDepositor,
+                    newRegistrationConfirmed,
+                ] = newScheduleArray;
 
-        it('should throw if newRegisteredAddress is different from the requested address', async () => {
-            const oldRegisteredAddress = registeredAddress;
-            const newRegisteredAddress = accounts[2];
-            const invalidNewRegisteredAddress = owner;
+                const expectedTotalAmountWithdrawnString = '0';
+                assert.equal(newRegisteredStartTimeInSec.toString(), startTimeInSec.toString());
+                assert.equal(newRegisteredCliffTimeInSec.toString(), cliffTimeInSec.toString());
+                assert.equal(newRegisteredEndTimeInSec.toString(), endTimeInSec.toString());
+                assert.equal(newRegisteredTotalAmount.toString(), totalAmount.toString());
+                assert.equal(newRegisteredTotalAmountWithdrawn.toString(), expectedTotalAmountWithdrawnString);
+                assert.equal(newDepositor, depositor);
+                assert.equal(newRegistrationConfirmed, true);
 
-            await vestingWallet.requestAddressChange(newRegisteredAddress, {from: oldRegisteredAddress});
+                const requestedAddress = await vestingWallet.addressChangeRequests.call(oldRegisteredAddress);
+                assert.equal(requestedAddress, constants.NULL_ADDRESS);
+            });
 
-            try {
-                await vestingWallet.confirmAddressChange(oldRegisteredAddress,
-                                                         invalidNewRegisteredAddress,
-                                                         {from: owner});
-                throw new Error('confirmAddressChange succeeded when it should have failed');
-            } catch (err) {
-                testUtil.assertThrow(err);
-            }
-        });
+            it('should log the correct args on a successful confirmation', async () => {
+                const oldRegisteredAddress = registeredAddress;
+                const newRegisteredAddress = accounts[2];
 
-        it('should migrate the vesting schedule to a new address with valid args', async () => {
-            const oldRegisteredAddress = registeredAddress;
-            const newRegisteredAddress = accounts[2];
+                await vestingWallet.requestAddressChange(newRegisteredAddress, {from: oldRegisteredAddress});
+                const res: ContractResponse = await vestingWallet.confirmAddressChange(oldRegisteredAddress,
+                                                                                       newRegisteredAddress,
+                                                                                       {from: owner});
+                const logs = res.logs;
+                assert.equal(logs.length, 1);
 
-            await vestingWallet.requestAddressChange(newRegisteredAddress, {from: oldRegisteredAddress});
-            await vestingWallet.confirmAddressChange(oldRegisteredAddress, newRegisteredAddress, {from: owner});
-
-            const oldScheduleArray = await vestingWallet.schedules.call(oldRegisteredAddress);
-            const [
-                oldRegisteredId,
-                oldRegisteredStartTimeInSec,
-                oldRegisteredCliffTimeInSec,
-                oldRegisteredEndTimeInSec,
-                oldRegisteredTotalAmount,
-                oldRegisteredTotalAmountWithdrawn,
-            ] = oldScheduleArray;
-
-            const nullUintString = 0;
-            assert.equal(oldRegisteredId.toString(), nullUintString);
-            assert.equal(oldRegisteredStartTimeInSec.toString(), nullUintString);
-            assert.equal(oldRegisteredCliffTimeInSec.toString(), nullUintString);
-            assert.equal(oldRegisteredEndTimeInSec.toString(), nullUintString);
-            assert.equal(oldRegisteredTotalAmount.toString(), nullUintString);
-            assert.equal(oldRegisteredTotalAmountWithdrawn.toString(), nullUintString);
-
-            const newScheduleArray = await vestingWallet.schedules.call(newRegisteredAddress);
-            const [
-                newRegisteredId,
-                newRegisteredStartTimeInSec,
-                newRegisteredCliffTimeInSec,
-                newRegisteredEndTimeInSec,
-                newRegisteredTotalAmount,
-                newRegisteredTotalAmountWithdrawn,
-            ] = newScheduleArray;
-
-            const expectedIdString = '1';
-            const expectedTotalAmountWithdrawnString = '0';
-            assert.equal(newRegisteredId.toString(), expectedIdString);
-            assert.equal(newRegisteredStartTimeInSec.toString(), startTimeInSec.toString());
-            assert.equal(newRegisteredCliffTimeInSec.toString(), cliffTimeInSec.toString());
-            assert.equal(newRegisteredEndTimeInSec.toString(), endTimeInSec.toString());
-            assert.equal(newRegisteredTotalAmount.toString(), totalAmount.toString());
-            assert.equal(newRegisteredTotalAmountWithdrawn.toString(), expectedTotalAmountWithdrawnString);
-
-            const requestedAddress = await vestingWallet.addressChangeRequests.call(oldRegisteredAddress);
-            assert.equal(requestedAddress, constants.NULL_ADDRESS);
-        });
-
-        it('should log the correct args on a successful confirmation', async () => {
-            const oldRegisteredAddress = registeredAddress;
-            const newRegisteredAddress = accounts[2];
-
-            await vestingWallet.requestAddressChange(newRegisteredAddress, {from: oldRegisteredAddress});
-            const res: ContractResponse = await vestingWallet.confirmAddressChange(oldRegisteredAddress,
-                                                                                   newRegisteredAddress,
-                                                                                   {from: owner});
-            const logs = res.logs;
-            assert.equal(logs.length, 1);
-
-            const logArgs = logs[0].args;
-            assert.equal(logArgs.oldRegisteredAddress, oldRegisteredAddress);
-            assert.equal(logArgs.newRegisteredAddress, newRegisteredAddress);
+                const logArgs = logs[0].args;
+                assert.equal(logArgs.oldRegisteredAddress, oldRegisteredAddress);
+                assert.equal(logArgs.newRegisteredAddress, newRegisteredAddress);
+            });
         });
     });
 });
